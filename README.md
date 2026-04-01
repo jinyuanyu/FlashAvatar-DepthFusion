@@ -1,91 +1,91 @@
 # FlashAvatar-DepthFusion
 
-Monocular-depth-regularized FlashAvatar for head avatar reconstruction.
+面向头部数字人重建的单目深度正则化 FlashAvatar 扩展版本。
 
-This repository is a public-facing research fork of FlashAvatar that adds a practical monocular depth supervision path on top of the original FLAME-conditioned Gaussian avatar pipeline.
+本仓库是在原始 FlashAvatar 基础上构建的公开研究分支，核心目标是在保留 FLAME 条件高斯头像重建主流程的同时，引入一条实用的单目深度监督路径，以缓解 RGB-only 训练在侧脸几何与轮廓稳定性上的欠约束问题。
 
-## Project Snapshot
+## 项目概览
 
-- Focus: stabilize geometry with monocular depth while keeping RGB reconstruction as the main learning signal
-- Depth signal: per-frame VideoDepth Anything style depth maps
-- Depth loss: scale-invariant Pearson correlation loss
-- Safety rule: only supervise a conservative facial core, not silhouette edges or mouth interior
-- Status: engineering prototype for controlled experiments, not an official upstream release
+- 研究重点：在保持 RGB 重建为主监督信号的前提下，用单目深度增强几何稳定性
+- 深度来源：逐帧 VideoDepth Anything 风格深度图
+- 深度损失：尺度不变 Pearson 相关性损失
+- 监督策略：只在保守的人脸核心区域使用深度，不监督嘴部内部与轮廓边缘
+- 当前状态：面向受控实验的工程原型，不是官方上游发布版本
 
-## Why This Fork Exists
+## 为什么要做这个分支
 
-RGB-only training often leaves profile geometry underconstrained. The result is usually most visible around:
+仅使用 RGB 训练时，头像几何在侧视角下通常会出现欠约束问题，最常见的表现包括：
 
-- jawline and cheek depth ordering
-- hair and silhouette stability
-- expression-driven lower-face deformation
-- side-view consistency across frames
+- 下颌线与脸颊区域的深度顺序不稳定
+- 头发和轮廓边缘容易抖动或漂移
+- 表情变化时下半脸几何容易失真
+- 多帧之间的侧视图一致性不足
 
-This fork uses monocular depth as a soft regularizer instead of forcing an explicit intermediate 3D mesh fitting stage.
+这个分支并不试图强行插入一个显式 3D 中间重建阶段，而是把单目深度作为软约束，辅助原始 FlashAvatar 管线学习更稳定的几何表示。
 
-## What Changed Relative To FlashAvatar
+## 相比原始 FlashAvatar 的改动
 
-- `train.py` adds optional depth supervision flags
-- `Scene_mica` can load `dataset/<id>/depth/*.npy`
-- a scale-invariant depth loss is implemented in `utils/loss_utils.py`
-- valid-mask logic excludes risky regions before applying depth supervision
-- preprocessing documents now cover `mp4 -> imgs / alpha / parsing / depth / checkpoint`
+- `train.py` 增加了可选深度监督参数
+- `Scene_mica` 支持读取 `dataset/<id>/depth/*.npy`
+- [`utils/loss_utils.py`](utils/loss_utils.py) 中实现了尺度不变深度相关性损失
+- 在施加深度监督前，使用有效区域掩码过滤高风险区域
+- 预处理文档补充了 `mp4 -> imgs / alpha / parsing / depth / checkpoint` 的数据约定
 
-## Method Summary
+## 方法摘要
 
-Depth is not treated as a metric ground-truth target. Instead, this fork uses a correlation-based objective:
+这里的深度并不被视为严格的度量真值，而是作为相关性约束信号参与训练：
 
 ```text
 L_depth = 1 - corr(render_depth[valid], mono_depth[valid])
 ```
 
-The valid region is intentionally conservative:
+有效监督区域采用保守策略：
 
 ```text
 valid_depth_mask = erode(head_mask, 2~3 px) - mouth_mask
 ```
 
-This protects training from the two most common failure modes of monocular depth:
+这样做主要是为了规避单目深度最常见的两个误差来源：
 
-- edge depth bleeding near hair, chin, ears, and silhouette boundaries
-- incorrect depth inside open-mouth regions
+- 头发、下巴、耳朵与轮廓边界附近的深度串色
+- 张嘴区域内部的错误深度估计
 
-## Architecture
+## 结构示意
 
-The current design keeps FlashAvatar's FLAME-driven Gaussian pipeline and injects depth only as an auxiliary regularizer.
+当前设计保持 FlashAvatar 原有的 FLAME 驱动高斯头像表示，只把深度作为辅助正则项注入训练过程。
 
 ![Depth Fusion Architecture](figures/depth_fusion_architecture/depth_fusion_architecture_preview.png)
 
-## Qualitative Comparisons
+## 定性对比
 
-Example comparison cards generated from the current workspace:
+当前工作区中已经整理了若干对比卡片：
 
-| Identity | Result |
+| 身份 | 结果 |
 | --- | --- |
 | Obama | ![Obama Comparison](_tmp_compare/Obama_contact.png) |
 | Mead2 | ![Mead2 Comparison](_tmp_compare/Mead2_contact.png) |
 | Luoxiang | ![Luoxiang Comparison](_tmp_compare/luoxiang_contact.png) |
 
-## Repository Guide
+## 仓库导读
 
-- [docs/overview.md](docs/overview.md): high-level fork overview
-- [docs/depth_supervision.md](docs/depth_supervision.md): depth-loss motivation and masking strategy
-- [docs/preprocessing.md](docs/preprocessing.md): preprocessing contract and expected outputs
-- [CONTRIBUTING.md](CONTRIBUTING.md): contribution and repository hygiene notes
-- [Agents.zh-CN.md](Agents.zh-CN.md): detailed Chinese engineering notes
-- [pseudocode.md](pseudocode.md): preprocessing pseudocode
-- [data_schema.json](data_schema.json): machine-readable preprocessing schema
+- [docs/overview.md](docs/overview.md)：分支整体说明
+- [docs/depth_supervision.md](docs/depth_supervision.md)：深度损失动机与掩码策略
+- [docs/preprocessing.md](docs/preprocessing.md)：预处理流程与输出约定
+- [CONTRIBUTING.md](CONTRIBUTING.md)：协作与仓库规范
+- [Agents.zh-CN.md](Agents.zh-CN.md)：更详细的中文工程说明
+- [pseudocode.md](pseudocode.md)：预处理伪代码
+- [data_schema.json](data_schema.json)：机器可读的数据结构定义
 
-## Quick Start
+## 快速开始
 
-Create the environment:
+### 1. 创建环境
 
 ```bash
 conda env create --file environment.yml
 conda activate FlashAvatar
 ```
 
-Install PyTorch3D:
+### 2. 安装 PyTorch3D
 
 ```bash
 conda install -c fvcore -c iopath -c conda-forge fvcore iopath
@@ -93,18 +93,20 @@ conda install -c bottler nvidiacub
 conda install pytorch3d -c pytorch3d
 ```
 
-Build the native extensions in your own environment if needed:
+### 3. 编译原生扩展
+
+如果环境中尚未构建，需要额外编译以下模块：
 
 - `submodules/simple-knn`
 - `submodules/diff-gaussian-rasterization`
 
-Baseline training:
+### 4. baseline 训练
 
 ```bash
 python train.py --idname <id_name>
 ```
 
-Training with depth supervision:
+### 5. 启用深度监督训练
 
 ```bash
 python train.py \
@@ -116,16 +118,16 @@ python train.py \
   --min_depth_samples 256
 ```
 
-Evaluation:
+### 6. 测试与新视角生成
 
 ```bash
 python test.py --idname <id_name> --checkpoint dataset/<id_name>/log/ckpt/chkpnt.pth
 python novel_view.py --idname <id_name> --checkpoint dataset/<id_name>/log/ckpt/chkpnt.pth
 ```
 
-## Data Layout
+## 数据组织方式
 
-Each identity is expected to follow:
+每个身份目录建议满足如下结构：
 
 ```text
 dataset/
@@ -133,7 +135,7 @@ dataset/
     imgs/
     alpha/
     parsing/
-    depth/          # optional, required when depth supervision is enabled
+    depth/          # 启用深度监督时需要提供
 
 metrical-tracker/
   output/
@@ -141,7 +143,7 @@ metrical-tracker/
       checkpoint/
 ```
 
-Frame alignment rule:
+帧对齐规则为：
 
 ```text
 00000.frame  <->  00001.jpg
@@ -149,29 +151,29 @@ Frame alignment rule:
 ...
 ```
 
-Depth convention:
+深度文件约定：
 
 - `dataset/<id>/depth/00001.npy`
 - `float32`
-- same resolution and numbering as `imgs/*.jpg`
-- recommended source: VideoDepth Anything
+- 与 `imgs/*.jpg` 具有相同分辨率和编号
+- 推荐来源：VideoDepth Anything
 
-## Current Implementation Boundary
+## 当前实现边界
 
-Depth-related code is already wired into:
+深度相关代码目前已经接入：
 
 - [train.py](train.py)
 - [scene/__init__.py](scene/__init__.py)
 - [scene/cameras.py](scene/cameras.py)
 - [utils/loss_utils.py](utils/loss_utils.py)
 
-The current implementation supervises depth by projecting Gaussian centers into the image plane and sampling monocular depth there. It does not yet expose a dense rasterized rendered depth map as a default renderer output.
+当前实现采用“将高斯中心投影到图像平面，再在那里采样单目深度”的方式施加监督。它还没有把“稠密渲染深度图”作为默认渲染器输出完全暴露出来。
 
-That makes this fork lightweight to integrate, but it should still be treated as an experimental depth-regularization path rather than a benchmark-finalized release.
+这让本分支更容易集成到现有 FlashAvatar 流程中，但它仍然应被视为“实验性的深度正则化路径”，而不是一个已经完全定型的 benchmark 版本。
 
-## Preprocessing Assets
+## 预处理相关资源
 
-This repository also includes preprocessing-side materials:
+仓库中还附带了若干预处理与可视化资源：
 
 - [preprocess_flashavatar_mp4.py](preprocess_flashavatar_mp4.py)
 - [pseudocode.md](pseudocode.md)
@@ -181,33 +183,33 @@ This repository also includes preprocessing-side materials:
 - [draw_depth_fusion_flowchart.py](draw_depth_fusion_flowchart.py)
 - [make_view_stability_comparison.py](make_view_stability_comparison.py)
 
-## External Assets Not Included
+## 未包含的外部资源
 
-For size and licensing reasons, this repository does not bundle every runtime dependency. You still need to provide:
+出于体积与授权原因，仓库中没有附带所有运行依赖。你仍然需要自行准备：
 
-- FLAME model assets required by `flame/`
-- FLAME mask assets if your environment depends on them
-- monocular depth maps if you enable depth supervision
-- metrical-tracker outputs under `metrical-tracker/output/<id>/checkpoint`
-- your own dataset under `dataset/<id>`
+- `flame/` 所需的 FLAME 模型资源
+- 如环境依赖，还需准备 FLAME mask 资源
+- 启用深度监督时需要准备单目深度图
+- `metrical-tracker/output/<id>/checkpoint` 下的跟踪输出
+- 你自己的 `dataset/<id>` 数据
 
-## Limitations
+## 当前限制
 
-- This is not the official upstream FlashAvatar repository.
-- Runtime still depends on CUDA, PyTorch3D, and native Gaussian rasterization extensions.
-- The current depth supervision is sparse and projection-based rather than dense depth rasterization.
-- Public demo assets are intentionally limited; you should expect local preparation work before training.
+- 这不是官方上游 FlashAvatar 仓库
+- 运行仍依赖 CUDA、PyTorch3D 与高斯渲染相关原生扩展
+- 当前深度监督是稀疏、投影式的，不是稠密深度渲染监督
+- 公共示例素材有限，真正训练前仍需要本地准备数据与依赖
 
-## Roadmap
+## 后续计划
 
-- expose a dense rendered depth branch from the Gaussian renderer
-- benchmark sparse center-projection loss against dense depth rasterization
-- add a cleaner public preprocessing example
-- support multi-segment identity training with segment-aware sampling
+- 从高斯渲染器中显式暴露稠密深度分支
+- 对比稀疏中心投影损失与稠密深度渲染损失
+- 增加更清晰的公开预处理示例
+- 支持多段 identity 的分段训练与采样策略
 
-## Acknowledgements
+## 致谢
 
-This repository builds on:
+本仓库建立在以下工作基础之上：
 
 - FlashAvatar
 - 3D Gaussian Splatting
@@ -216,9 +218,9 @@ This repository builds on:
 - MatAnyone
 - VideoDepth Anything
 
-## Citation
+## 引用
 
-Please cite the original FlashAvatar paper if you build on this codebase.
+如果你的工作基于本仓库，请同时引用原始 FlashAvatar 论文：
 
 ```bibtex
 @inproceedings{xiang2024flashavatar,
