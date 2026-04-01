@@ -12,6 +12,22 @@ This repository is a practical derivative of the original FlashAvatar codebase, 
 
 The goal is to improve geometric stability without introducing an explicit intermediate 3D mesh reconstruction stage.
 
+## Project Status
+
+- Status: research fork / engineering prototype
+- Base: FlashAvatar
+- Focus: monocular depth fusion, safer geometry regularization, reproducible preprocessing
+- Intended use: controlled experiments on custom monocular head videos
+
+## Repository Guide
+
+- [docs/overview.md](docs/overview.md): what changed relative to FlashAvatar
+- [docs/depth_supervision.md](docs/depth_supervision.md): SIDL / Pearson depth supervision design
+- [docs/preprocessing.md](docs/preprocessing.md): preprocessing contract and data layout
+- [Agents.zh-CN.md](Agents.zh-CN.md): detailed Chinese engineering notes
+- [pseudocode.md](pseudocode.md): preprocessing pseudocode
+- [data_schema.json](data_schema.json): machine-readable schema for the preprocessing stage
+
 ## Highlights
 
 - `train.py` adds optional monocular-depth supervision through `--use_depth_supervision`.
@@ -77,6 +93,7 @@ Important note:
 
 - the current renderer path still computes depth supervision by projecting Gaussian centers into image space
 - it does not yet expose a full rasterized dense depth map as a default return of `render(...)`
+- this makes the current implementation lightweight, but it should still be viewed as an experimental depth-regularization path rather than a final benchmark-ready release
 
 ## Data Layout
 
@@ -159,6 +176,13 @@ Visualization / figure scripts:
 - [draw_depth_fusion_flowchart.py](draw_depth_fusion_flowchart.py)
 - [make_view_stability_comparison.py](make_view_stability_comparison.py)
 
+## Limitations
+
+- This is not the official upstream FlashAvatar repository.
+- The current depth supervision uses projected Gaussian centers rather than a dense differentiable rendered depth image.
+- Runtime still depends on CUDA, PyTorch3D, and native Gaussian rasterization extensions.
+- Some external assets are intentionally excluded from version control and must be supplied locally.
+
 ## Setup Notes
 
 Create the environment:
@@ -203,6 +227,13 @@ This is an engineering-focused research fork for experimenting with:
 - improved preprocessing contracts for custom videos
 
 It should be treated as a practical extension of FlashAvatar, not as the official upstream repository.
+
+## Roadmap
+
+- expose a dense rendered depth output path from the Gaussian renderer
+- benchmark center-projection depth loss vs dense depth rasterization
+- add cleaner public examples for preprocessing and training
+- support multi-segment identity training with segment-aware sampling
 
 ## Acknowledgements
 
