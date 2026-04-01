@@ -1,67 +1,62 @@
 # FlashAvatar-DepthFusion
 
-Monocular-depth-regularized FlashAvatar with scale-invariant depth supervision for head avatar reconstruction.
+Monocular-depth-regularized FlashAvatar for head avatar reconstruction.
 
-This repository is a practical derivative of the original FlashAvatar codebase, extended with:
+This repository is a public-facing research fork of FlashAvatar that adds a practical monocular depth supervision path on top of the original FLAME-conditioned Gaussian avatar pipeline.
 
-- per-frame monocular depth loading
-- SIDL-style depth supervision via Pearson correlation loss
-- conservative valid-mask design for jaw / hair boundary safety
-- mouth-interior depth exclusion for non-rigid speech motion
-- preprocessing documentation for `mp4 -> imgs / alpha / parsing / depth / checkpoint`
+## Project Snapshot
 
-The goal is to improve geometric stability without introducing an explicit intermediate 3D mesh reconstruction stage.
+- Focus: stabilize geometry with monocular depth while keeping RGB reconstruction as the main learning signal
+- Depth signal: per-frame VideoDepth Anything style depth maps
+- Depth loss: scale-invariant Pearson correlation loss
+- Safety rule: only supervise a conservative facial core, not silhouette edges or mouth interior
+- Status: engineering prototype for controlled experiments, not an official upstream release
 
-## Project Status
+## Why This Fork Exists
 
-- Status: research fork / engineering prototype
-- Base: FlashAvatar
-- Focus: monocular depth fusion, safer geometry regularization, reproducible preprocessing
-- Intended use: controlled experiments on custom monocular head videos
+RGB-only training often leaves profile geometry underconstrained. The result is usually most visible around:
 
-## Repository Guide
+- jawline and cheek depth ordering
+- hair and silhouette stability
+- expression-driven lower-face deformation
+- side-view consistency across frames
 
-- [docs/overview.md](docs/overview.md): what changed relative to FlashAvatar
-- [docs/depth_supervision.md](docs/depth_supervision.md): SIDL / Pearson depth supervision design
-- [docs/preprocessing.md](docs/preprocessing.md): preprocessing contract and data layout
-- [Agents.zh-CN.md](Agents.zh-CN.md): detailed Chinese engineering notes
-- [pseudocode.md](pseudocode.md): preprocessing pseudocode
-- [data_schema.json](data_schema.json): machine-readable schema for the preprocessing stage
+This fork uses monocular depth as a soft regularizer instead of forcing an explicit intermediate 3D mesh fitting stage.
 
-## Highlights
+## What Changed Relative To FlashAvatar
 
-- `train.py` adds optional monocular-depth supervision through `--use_depth_supervision`.
-- `Scene_mica` can read `dataset/<id>/depth/*.npy` and build a valid depth mask online.
-- The depth loss is scale-invariant:
+- `train.py` adds optional depth supervision flags
+- `Scene_mica` can load `dataset/<id>/depth/*.npy`
+- a scale-invariant depth loss is implemented in `utils/loss_utils.py`
+- valid-mask logic excludes risky regions before applying depth supervision
+- preprocessing documents now cover `mp4 -> imgs / alpha / parsing / depth / checkpoint`
+
+## Method Summary
+
+Depth is not treated as a metric ground-truth target. Instead, this fork uses a correlation-based objective:
 
 ```text
 L_depth = 1 - corr(render_depth[valid], mono_depth[valid])
 ```
 
-- The valid region follows a conservative rule:
+The valid region is intentionally conservative:
 
 ```text
 valid_depth_mask = erode(head_mask, 2~3 px) - mouth_mask
 ```
 
-This avoids the two most common monocular-depth failure modes:
+This protects training from the two most common failure modes of monocular depth:
 
-- edge depth bleeding near jawlines and hair boundaries
+- edge depth bleeding near hair, chin, ears, and silhouette boundaries
 - incorrect depth inside open-mouth regions
 
 ## Architecture
 
-The current training design keeps FlashAvatar's FLAME-conditioned Gaussian pipeline, then injects monocular depth as an extra regularization branch rather than as a standalone geometry source.
+The current design keeps FlashAvatar's FLAME-driven Gaussian pipeline and injects depth only as an auxiliary regularizer.
 
 ![Depth Fusion Architecture](figures/depth_fusion_architecture/depth_fusion_architecture_preview.png)
 
-Key idea:
-
-- RGB reconstruction remains the primary optimization target.
-- FLAME and metrical-tracker still provide the motion / camera backbone.
-- Monocular depth only regularizes geometry on conservative, high-confidence facial regions.
-
-## Qualitative Results
+## Qualitative Comparisons
 
 Example comparison cards generated from the current workspace:
 
@@ -71,119 +66,17 @@ Example comparison cards generated from the current workspace:
 | Mead2 | ![Mead2 Comparison](_tmp_compare/Mead2_contact.png) |
 | Luoxiang | ![Luoxiang Comparison](_tmp_compare/luoxiang_contact.png) |
 
-## What Is Implemented
+## Repository Guide
 
-Depth-related code already wired into this repository:
+- [docs/overview.md](docs/overview.md): high-level fork overview
+- [docs/depth_supervision.md](docs/depth_supervision.md): depth-loss motivation and masking strategy
+- [docs/preprocessing.md](docs/preprocessing.md): preprocessing contract and expected outputs
+- [CONTRIBUTING.md](CONTRIBUTING.md): contribution and repository hygiene notes
+- [Agents.zh-CN.md](Agents.zh-CN.md): detailed Chinese engineering notes
+- [pseudocode.md](pseudocode.md): preprocessing pseudocode
+- [data_schema.json](data_schema.json): machine-readable preprocessing schema
 
-- [train.py](train.py)
-  adds:
-  - `--use_depth_supervision`
-  - `--depth_loss_weight`
-  - `--depth_start_iter`
-  - `--depth_erode_kernel`
-  - `--min_depth_samples`
-- [utils/loss_utils.py](utils/loss_utils.py)
-  adds `scale_invariant_depth_loss(...)`
-- [scene/__init__.py](scene/__init__.py)
-  loads `depth/*.npy` and builds `depth_valid_mask`
-- [scene/cameras.py](scene/cameras.py)
-  carries `mono_depth` and `depth_valid_mask` per frame
-
-Important note:
-
-- the current renderer path still computes depth supervision by projecting Gaussian centers into image space
-- it does not yet expose a full rasterized dense depth map as a default return of `render(...)`
-- this makes the current implementation lightweight, but it should still be viewed as an experimental depth-regularization path rather than a final benchmark-ready release
-
-## Data Layout
-
-Each identity uses the following layout:
-
-```text
-dataset/
-  <id>/
-    imgs/
-    alpha/
-    depth/          # float32 .npy, optional but required when depth supervision is enabled
-    parsing/
-
-metrical-tracker/
-  output/
-    <id>/
-      checkpoint/
-```
-
-Required frame alignment:
-
-```text
-00000.frame  <->  00001.jpg
-00001.frame  <->  00002.jpg
-...
-```
-
-Depth convention:
-
-- `dataset/<id>/depth/00001.npy`
-- one `float32` depth map per frame
-- same resolution and numbering as `imgs/*.jpg`
-- recommended source: VideoDepth Anything
-
-## Training
-
-Baseline training:
-
-```bash
-python train.py --idname <id_name>
-```
-
-Training with monocular depth supervision:
-
-```bash
-python train.py \
-  --idname <id_name> \
-  --use_depth_supervision \
-  --depth_loss_weight 0.05 \
-  --depth_start_iter 0 \
-  --depth_erode_kernel 3 \
-  --min_depth_samples 256
-```
-
-Test rendering:
-
-```bash
-python test.py --idname <id_name> --checkpoint dataset/<id_name>/log/ckpt/chkpnt.pth
-```
-
-Novel-view rendering:
-
-```bash
-python novel_view.py --idname <id_name> --checkpoint dataset/<id_name>/log/ckpt/chkpnt.pth
-```
-
-## Preprocessing Assets
-
-This repo also includes preprocessing-side documents and helper scripts:
-
-- [preprocess_flashavatar_mp4.py](preprocess_flashavatar_mp4.py)
-- [pseudocode.md](pseudocode.md)
-- [data_schema.json](data_schema.json)
-- [Agents.zh-CN.md](Agents.zh-CN.md)
-- [test_flashavatar_schema.py](test_flashavatar_schema.py)
-
-Visualization / figure scripts:
-
-- [generate_depth_fusion_architecture.py](generate_depth_fusion_architecture.py)
-- [draw_depth_fusion_flowchart.py](draw_depth_fusion_flowchart.py)
-- [make_view_stability_comparison.py](make_view_stability_comparison.py)
-
-## Limitations
-
-- This is not the official upstream FlashAvatar repository.
-- The current depth supervision uses projected Gaussian centers rather than a dense differentiable rendered depth image.
-- Runtime still depends on CUDA, PyTorch3D, and native Gaussian rasterization extensions.
-- Some external assets are intentionally excluded from version control and must be supplied locally.
-
-## Setup Notes
+## Quick Start
 
 Create the environment:
 
@@ -200,39 +93,116 @@ conda install -c bottler nvidiacub
 conda install pytorch3d -c pytorch3d
 ```
 
-Submodules / native extensions:
+Build the native extensions in your own environment if needed:
 
 - `submodules/simple-knn`
 - `submodules/diff-gaussian-rasterization`
 
-You may need to rebuild the CUDA extensions in your own environment.
+Baseline training:
+
+```bash
+python train.py --idname <id_name>
+```
+
+Training with depth supervision:
+
+```bash
+python train.py \
+  --idname <id_name> \
+  --use_depth_supervision \
+  --depth_loss_weight 0.05 \
+  --depth_start_iter 0 \
+  --depth_erode_kernel 3 \
+  --min_depth_samples 256
+```
+
+Evaluation:
+
+```bash
+python test.py --idname <id_name> --checkpoint dataset/<id_name>/log/ckpt/chkpnt.pth
+python novel_view.py --idname <id_name> --checkpoint dataset/<id_name>/log/ckpt/chkpnt.pth
+```
+
+## Data Layout
+
+Each identity is expected to follow:
+
+```text
+dataset/
+  <id>/
+    imgs/
+    alpha/
+    parsing/
+    depth/          # optional, required when depth supervision is enabled
+
+metrical-tracker/
+  output/
+    <id>/
+      checkpoint/
+```
+
+Frame alignment rule:
+
+```text
+00000.frame  <->  00001.jpg
+00001.frame  <->  00002.jpg
+...
+```
+
+Depth convention:
+
+- `dataset/<id>/depth/00001.npy`
+- `float32`
+- same resolution and numbering as `imgs/*.jpg`
+- recommended source: VideoDepth Anything
+
+## Current Implementation Boundary
+
+Depth-related code is already wired into:
+
+- [train.py](train.py)
+- [scene/__init__.py](scene/__init__.py)
+- [scene/cameras.py](scene/cameras.py)
+- [utils/loss_utils.py](utils/loss_utils.py)
+
+The current implementation supervises depth by projecting Gaussian centers into the image plane and sampling monocular depth there. It does not yet expose a dense rasterized rendered depth map as a default renderer output.
+
+That makes this fork lightweight to integrate, but it should still be treated as an experimental depth-regularization path rather than a benchmark-finalized release.
+
+## Preprocessing Assets
+
+This repository also includes preprocessing-side materials:
+
+- [preprocess_flashavatar_mp4.py](preprocess_flashavatar_mp4.py)
+- [pseudocode.md](pseudocode.md)
+- [data_schema.json](data_schema.json)
+- [test_flashavatar_schema.py](test_flashavatar_schema.py)
+- [generate_depth_fusion_architecture.py](generate_depth_fusion_architecture.py)
+- [draw_depth_fusion_flowchart.py](draw_depth_fusion_flowchart.py)
+- [make_view_stability_comparison.py](make_view_stability_comparison.py)
 
 ## External Assets Not Included
 
-For legal and size reasons, this repository does not bundle every runtime asset.
+For size and licensing reasons, this repository does not bundle every runtime dependency. You still need to provide:
 
-You still need to provide or download:
-
-- FLAME geometry model files required by the `flame/` module
+- FLAME model assets required by `flame/`
 - FLAME mask assets if your environment depends on them
 - monocular depth maps if you enable depth supervision
 - metrical-tracker outputs under `metrical-tracker/output/<id>/checkpoint`
+- your own dataset under `dataset/<id>`
 
-## Repository Positioning
+## Limitations
 
-This is an engineering-focused research fork for experimenting with:
-
-- FlashAvatar + monocular depth fusion
-- conservative depth supervision masking
-- improved preprocessing contracts for custom videos
-
-It should be treated as a practical extension of FlashAvatar, not as the official upstream repository.
+- This is not the official upstream FlashAvatar repository.
+- Runtime still depends on CUDA, PyTorch3D, and native Gaussian rasterization extensions.
+- The current depth supervision is sparse and projection-based rather than dense depth rasterization.
+- Public demo assets are intentionally limited; you should expect local preparation work before training.
 
 ## Roadmap
 
-- expose a dense rendered depth output path from the Gaussian renderer
-- benchmark center-projection depth loss vs dense depth rasterization
-- add cleaner public examples for preprocessing and training
+- expose a dense rendered depth branch from the Gaussian renderer
+- benchmark sparse center-projection loss against dense depth rasterization
+- add a cleaner public preprocessing example
 - support multi-segment identity training with segment-aware sampling
 
 ## Acknowledgements
@@ -248,7 +218,7 @@ This repository builds on:
 
 ## Citation
 
-If you use this codebase, please cite the original FlashAvatar work and acknowledge this depth-fusion derivative accordingly.
+Please cite the original FlashAvatar paper if you build on this codebase.
 
 ```bibtex
 @inproceedings{xiang2024flashavatar,
