@@ -1,0 +1,84 @@
+\documentclass[tikz,border=6pt]{standalone}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,backgrounds}
+\begin{document}
+\begin{tikzpicture}[
+  x=1cm, y=1cm,
+  >=Latex,
+  font=\sffamily,
+  box/.style={rounded corners=3pt, draw=black!45, line width=0.9pt, align=center},
+  flow/.style={-Latex, line width=1.0pt, draw=black!70},
+  update/.style={-Latex, line width=1.0pt, draw=black!55, dashed},
+]
+\definecolor{inputFill}{HTML}{DCEEFF}
+\definecolor{sharedFill}{HTML}{EEF1F4}
+\definecolor{renderFill}{HTML}{CFE8FF}
+\definecolor{rgbFill}{HTML}{E5F4E8}
+\definecolor{depthFill}{HTML}{FFE7C2}
+\definecolor{fusionFill}{HTML}{D9F5E5}
+\definecolor{renderBand}{HTML}{EEF6FF}
+\definecolor{depthBand}{HTML}{FFF5E7}
+\node[anchor=west, font=\bfseries\Large] at (0.5, 17.45) {3DGS + Monocular Depth Fusion};
+\node[anchor=west, font=\small, text=black!65] at (0.5, 16.95) {Vertical layout with a clearer top-to-bottom logic chain};
+\node[circle, draw=white, line width=0.5pt, fill=inputFill!70!blue, text=white, font=\bfseries\tiny, minimum size=0.34cm] at (7.7, 17.18) {IN};
+\node[anchor=west, font=\scriptsize, text=black!70] at (7.93, 17.18) {input};
+\node[circle, draw=white, line width=0.5pt, fill=renderFill!75!blue, text=white, font=\bfseries\tiny, minimum size=0.34cm] at (9.0, 17.18) {NN};
+\node[anchor=west, font=\scriptsize, text=black!70] at (9.23, 17.18) {learned};
+\node[circle, draw=white, line width=0.5pt, fill=depthFill!85!orange, text=white, font=\bfseries\tiny, minimum size=0.34cm] at (10.5, 17.18) {D};
+\node[anchor=west, font=\scriptsize, text=black!70] at (10.73, 17.18) {depth};
+\node[circle, draw=white, line width=0.5pt, fill=fusionFill!80!green!60!black, text=white, font=\bfseries\tiny, minimum size=0.34cm] at (11.75, 17.18) {L};
+\node[anchor=west, font=\scriptsize, text=black!70] at (11.98, 17.18) {loss};
+\node[box, fill=inputFill, minimum width=4.2cm, minimum height=1.35cm] (inputs) at (3.00, 14.88) {RGB / mask /\\FLAME track};
+\definecolor{inputsBadge}{HTML}{4C90E8}
+\node[circle, draw=white, line width=0.6pt, fill=inputsBadge, text=white, font=\bfseries\tiny, minimum size=0.42cm] at (1.24, 15.31) {IN};
+\node[box, fill=sharedFill, minimum width=4.2cm, minimum height=1.35cm] (loader) at (3.00, 12.62) {Scene Loader};
+\definecolor{loaderBadge}{HTML}{7E8B96}
+\node[circle, draw=white, line width=0.6pt, fill=loaderBadge, text=white, font=\bfseries\tiny, minimum size=0.42cm] at (1.24, 13.06) {SC};
+\node[box, fill=renderFill, minimum width=4.2cm, minimum height=1.35cm] (deform) at (3.00, 10.38) {FLAME MLP};
+\definecolor{deformBadge}{HTML}{3D78C5}
+\node[circle, draw=white, line width=0.6pt, fill=deformBadge, text=white, font=\bfseries\tiny, minimum size=0.42cm] at (1.24, 10.81) {NN};
+\node[box, fill=renderFill, minimum width=4.2cm, minimum height=1.55cm] (gaussian) at (3.00, 8.03) {Gaussian State\\xyz / rot / scale / SH};
+\definecolor{gaussianBadge}{HTML}{3D78C5}
+\node[circle, draw=white, line width=0.6pt, fill=gaussianBadge, text=white, font=\bfseries\tiny, minimum size=0.42cm] at (1.24, 8.56) {GS};
+\node[box, fill=renderFill, minimum width=4.2cm, minimum height=1.35cm] (renderer) at (3.00, 5.62) {3DGS Render};
+\definecolor{rendererBadge}{HTML}{3D78C5}
+\node[circle, draw=white, line width=0.6pt, fill=rendererBadge, text=white, font=\bfseries\tiny, minimum size=0.42cm] at (1.24, 6.06) {RD};
+\node[box, fill=rgbFill, minimum width=4.2cm, minimum height=1.55cm] (rgb_loss) at (3.00, 3.42) {RGB Loss\\Huber + LPIPS};
+\definecolor{rgb_lossBadge}{HTML}{4DAA72}
+\node[circle, draw=white, line width=0.6pt, fill=rgb_lossBadge, text=white, font=\bfseries\tiny, minimum size=0.42cm] at (1.24, 3.96) {RL};
+\node[box, fill=depthFill, minimum width=4.0cm, minimum height=1.35cm] (depth_input) at (9.10, 13.73) {Mono Depth\\+ valid mask};
+\definecolor{depth_inputBadge}{HTML}{E6A445}
+\node[circle, draw=white, line width=0.6pt, fill=depth_inputBadge, text=white, font=\bfseries\tiny, minimum size=0.42cm] at (7.44, 14.16) {MD};
+\node[box, fill=depthFill, minimum width=4.0cm, minimum height=1.35cm] (depth_proj) at (9.10, 11.28) {Depth Sample};
+\definecolor{depth_projBadge}{HTML}{E6A445}
+\node[circle, draw=white, line width=0.6pt, fill=depth_projBadge, text=white, font=\bfseries\tiny, minimum size=0.42cm] at (7.44, 11.71) {DP};
+\node[box, fill=depthFill, minimum width=4.0cm, minimum height=1.35cm] (depth_loss) at (9.10, 8.83) {SIDL Loss\\corr(D_r, D_m)};
+\definecolor{depth_lossBadge}{HTML}{E6A445}
+\node[circle, draw=white, line width=0.6pt, fill=depth_lossBadge, text=white, font=\bfseries\tiny, minimum size=0.42cm] at (7.44, 9.26) {DL};
+\node[box, fill=fusionFill, minimum width=4.0cm, minimum height=1.35cm] (total_loss) at (9.10, 5.72) {Total Loss\\Lrgb + lambda_d Ld};
+\definecolor{total_lossBadge}{HTML}{4DAA72}
+\node[circle, draw=white, line width=0.6pt, fill=total_lossBadge, text=white, font=\bfseries\tiny, minimum size=0.42cm] at (7.44, 6.16) {L};
+\node[box, fill=fusionFill, minimum width=4.0cm, minimum height=1.55cm] (opt) at (9.10, 3.52) {Optimize\\MLP + appearance};
+\definecolor{optBadge}{HTML}{4DAA72}
+\node[circle, draw=white, line width=0.6pt, fill=optBadge, text=white, font=\bfseries\tiny, minimum size=0.42cm] at (7.44, 4.06) {OP};
+\begin{scope}[on background layer]
+\fill[renderBand, rounded corners=6pt] (0.55,2.15) rectangle (5.45,16.4);
+\fill[depthBand, rounded corners=6pt] (6.75,7.4) rectangle (11.45,15.4);
+\fill[fusionFill!30, rounded corners=6pt] (6.75,2.35) rectangle (11.45,6.75);
+\node[anchor=west, font=\bfseries\small, text=blue!55!black] at (0.8, 16.18) {Main 3DGS chain};
+\node[anchor=west, font=\bfseries\small, text=orange!70!black] at (7.0, 15.1) {Depth branch};
+\node[anchor=west, font=\bfseries\small, text=green!45!black] at (7.0, 6.45) {Fusion + optimization};
+\end{scope}
+\draw[flow] (inputs.south) -- (loader.north);
+\draw[flow] (loader.south) -- (deform.north);
+\draw[flow] (deform.south) -- (gaussian.north);
+\draw[flow] (gaussian.south) -- (renderer.north);
+\draw[flow] (renderer.south) -- node[midway, fill=white, inner sep=1.2pt, font=\scriptsize] {RGB} (rgb_loss.north);
+\draw[flow] (gaussian.east) -- node[midway, fill=white, inner sep=1.2pt, font=\scriptsize] {xyz} (depth_proj.west);
+\draw[flow] (depth_input.south) -- node[midway, fill=white, inner sep=1.2pt, font=\scriptsize] {D_m + mask} (depth_proj.north);
+\draw[flow] (depth_proj.south) -- node[midway, fill=white, inner sep=1.2pt, font=\scriptsize] {D_r} (depth_loss.north);
+\draw[flow] (depth_loss.south) -- node[midway, fill=white, inner sep=1.2pt, font=\scriptsize] {lambda_d} (total_loss.north);
+\draw[flow] (rgb_loss.east) |- node[pos=0.30, fill=white, inner sep=1.2pt, font=\scriptsize] {Lrgb} (total_loss.west);
+\draw[flow] (total_loss.south) -- (opt.north);
+\end{tikzpicture}
+\end{document}

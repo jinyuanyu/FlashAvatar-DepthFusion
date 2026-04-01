@@ -1,0 +1,16 @@
+dataset/
+metrical-tracker/
+preprocess_work/
+pretrained_models/
+**/__pycache__/
+*.avi
+*.mp4
+*.ply
+*.txt
+*.sh
+*.pth
+dataset/*/depth/*.npy
+flame/generic_model.pkl
+flame/FLAME_masks/
+submodules/simple-knn/build/
+submodules/simple-knn/simple_knn.egg-info/

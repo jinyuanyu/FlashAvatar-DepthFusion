@@ -1,0 +1,402 @@
+{
+  "schema_version": "1.0.0",
+  "pipeline_name": "flashavatar_mp4_preprocess",
+  "stage_scope": "mp4_to_images_and_masks_with_flashavatar_layout",
+  "owner_role": "Analyst",
+  "summary": "Use BiSeNet-face-parsing on the first frame to create person and mouth seeds, use MatAnyone to propagate those masks across the video, organize imgs/alpha/parsing in FlashAvatar format, optionally export per-frame monocular depth maps for future scale-invariant depth supervision, and run metrical-tracker to generate checkpoint/*.frame once identity.npy is available.",
+  "semantic_assumptions": [
+    "BiSeNet-face-parsing is used as a face-centric parser, so the person seed is a head-centric foreground matte seed rather than a generic full-body segmentation.",
+    "In the current contract, dataset/<id>/parsing/*_neckhead.png is produced by binarizing the tracked person matte for FlashAvatar compatibility.",
+    "If a stricter head-neck parser is added later, parsing/*_neckhead.png may be replaced without changing the directory contract.",
+    "metrical-tracker requires identity.npy from a MICA-style identity estimation stage before checkpoint generation can run.",
+    "Monocular depth supervision is currently documented as a planned extension rather than a default-enabled training path."
+  ],
+  "source_input": {
+    "required": true,
+    "type": "mp4_video",
+    "path_pattern": "<input>/<id>.mp4 or explicit file path",
+    "properties": {
+      "codec": "any decodable by ffmpeg/opencv",
+      "frame_order": "original temporal order must be preserved",
+      "minimum_frame_count": 1
+    }
+  },
+  "tracker_prerequisites": {
+    "mica_identity": {
+      "required_for_checkpoint_generation": true,
+      "path_pattern": "/root/AvatarStack/modules/metrical-tracker/input/<id>/identity.npy or equivalent source path before copy",
+      "dtype": "float32_or_float64_numpy_array",
+      "semantic": "MICA identity / shape prior consumed by metrical-tracker"
+    }
+  },
+  "modules": {
+    "bisenet_face_parsing": {
+      "path": "/root/AvatarStack/modules/BiSeNet-face-parsing",
+      "entrypoint": "inference.py",
+      "run_scope": "first frame only",
+      "output_kind": "19-class face parsing label map"
+    },
+    "matanyone": {
+      "path": "/root/AvatarStack/modules/MatAnyone",
+      "entrypoint": "inference_matanyone.py",
+      "run_scope": "full video twice",
+      "output_kind": "per-frame alpha matte sequence",
+      "required_invocations": [
+        "person track",
+        "mouth track"
+      ]
+    },
+    "flashavatar_code": {
+      "path": "/root/AvatarStack/modules/FlashAvatar-code",
+      "consumer": "scene/__init__.py::Scene_mica",
+      "consumes": [
+        "dataset/<id>/imgs/*.jpg",
+        "dataset/<id>/alpha/*.jpg",
+        "dataset/<id>/parsing/*_neckhead.png",
+        "dataset/<id>/parsing/*_mouth.png",
+        "metrical-tracker/output/<id>/checkpoint/*.frame"
+      ]
+    },
+    "metrical_tracker": {
+      "path": "/root/AvatarStack/modules/metrical-tracker",
+      "entrypoint": "tracker.py",
+      "config_entrypoint": "python tracker.py --cfg ./configs/actors/<id>.yml",
+      "prerequisites": [
+        "input/<id>/video.mp4",
+        "input/<id>/identity.npy"
+      ],
+      "internal_generated_inputs": [
+        "input/<id>/source/*",
+        "input/<id>/images/*",
+        "input/<id>/kpt/*",
+        "input/<id>/kpt_dense/*"
+      ],
+      "required_config_fields": {
+        "actor": "./input/<id>",
+        "save_folder": "./output/",
+        "begin_frames": 1
+      },
+      "output_folder_rule": "tracker output folder name equals config file stem, so config file should be named <id>.yml"
+    }
+  },
+  "bisenet_label_map": {
+    "background": 0,
+    "classes": {
+      "skin": 1,
+      "l_brow": 2,
+      "r_brow": 3,
+      "l_eye": 4,
+      "r_eye": 5,
+      "eye_g": 6,
+      "l_ear": 7,
+      "r_ear": 8,
+      "ear_r": 9,
+      "nose": 10,
+      "mouth": 11,
+      "u_lip": 12,
+      "l_lip": 13,
+      "neck": 14,
+      "neck_l": 15,
+      "cloth": 16,
+      "hair": 17,
+      "hat": 18
+    }
+  },
+  "seed_masks": {
+    "person_seed": {
+      "source": "first_frame_parsing_raw",
+      "frame_index": 0,
+      "class_ids": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18
+      ],
+      "dtype": "uint8",
+      "value_domain": [
+        0,
+        255
+      ],
+      "path_pattern": "<work_root>/<id>/seed_masks/00000_person_seed.png"
+    },
+    "mouth_seed": {
+      "source": "first_frame_parsing_raw",
+      "frame_index": 0,
+      "class_ids": [
+        11,
+        12,
+        13
+      ],
+      "dtype": "uint8",
+      "value_domain": [
+        0,
+        255
+      ],
+      "path_pattern": "<work_root>/<id>/seed_masks/00000_mouth_seed.png"
+    }
+  },
+  "intermediate_outputs": {
+    "raw_frames": {
+      "path_pattern": "<work_root>/<id>/frames_raw/{frame5}.jpg",
+      "index_base": 0,
+      "index_width": 5,
+      "count_rule": "equals decoded video frame count",
+      "image_format": "jpeg"
+    },
+    "first_frame_parsing_raw": {
+      "path_pattern": "<work_root>/<id>/seed_masks/00000_parsing_raw.png",
+      "dtype": "uint8",
+      "semantic": "per-pixel class id in [0, 18]"
+    },
+    "matanyone_person_pha": {
+      "path_pattern": "<work_root>/<id>/matanyone/person/<video_name>/pha/{frame4}.png",
+      "index_base": 0,
+      "index_width": 4,
+      "dtype": "uint8",
+      "value_domain": [
+        0,
+        255
+      ],
+      "semantic": "soft alpha matte for tracked person seed"
+    },
+    "matanyone_mouth_pha": {
+      "path_pattern": "<work_root>/<id>/matanyone/mouth/<video_name>/pha/{frame4}.png",
+      "index_base": 0,
+      "index_width": 4,
+      "dtype": "uint8",
+      "value_domain": [
+        0,
+        255
+      ],
+      "semantic": "soft alpha matte for tracked mouth seed"
+    }
+  },
+  "final_flashavatar_layout": {
+    "dataset_root": "dataset/<id>",
+    "tracker_root": "metrical-tracker/output/<id>",
+    "artifacts": {
+      "imgs": {
+        "path_pattern": "dataset/<id>/imgs/{frame5}.jpg",
+        "required_in_current_stage": true,
+        "dtype": "uint8",
+        "channels": 3,
+        "index_base": 0,
+        "index_width": 5,
+        "count_rule": "equals decoded video frame count",
+        "source": "raw_frames"
+      },
+      "alpha": {
+        "path_pattern": "dataset/<id>/alpha/{frame5}.jpg",
+        "required_in_current_stage": true,
+        "dtype": "uint8",
+        "channels": 1,
+        "value_domain": [
+          0,
+          255
+        ],
+        "index_base": 0,
+        "index_width": 5,
+        "count_rule": "equals decoded video frame count",
+        "source": "matanyone_person_pha",
+        "semantic": "soft grayscale alpha matte"
+      },
+      "parsing_neckhead": {
+        "path_pattern": "dataset/<id>/parsing/{frame5}_neckhead.png",
+        "required_in_current_stage": true,
+        "dtype": "uint8",
+        "channels": 1,
+        "allowed_values": [
+          0,
+          255
+        ],
+        "index_base": 0,
+        "index_width": 5,
+        "count_rule": "equals decoded video frame count",
+        "source": "threshold(matanyone_person_pha)",
+        "threshold": 127,
+        "semantic": "binary FlashAvatar-compatible foreground region derived from person matte"
+      },
+      "parsing_mouth": {
+        "path_pattern": "dataset/<id>/parsing/{frame5}_mouth.png",
+        "required_in_current_stage": true,
+        "dtype": "uint8",
+        "channels": 1,
+        "allowed_values": [
+          0,
+          255
+        ],
+        "index_base": 0,
+        "index_width": 5,
+        "count_rule": "equals decoded video frame count",
+        "source": "threshold(matanyone_mouth_pha)",
+        "threshold": 127,
+        "semantic": "binary mouth region mask"
+      },
+      "depth": {
+        "path_pattern": "dataset/<id>/depth/{frame5}.npy",
+        "required_in_current_stage": false,
+        "required_for_planned_depth_supervision": true,
+        "dtype": "float32",
+        "channels": 1,
+        "index_base": 0,
+        "index_width": 5,
+        "count_rule": "equals decoded video frame count when depth supervision is enabled",
+        "source": "VideoDepth Anything or equivalent video monocular depth estimator",
+        "semantic": "per-frame relative monocular depth map aligned with imgs"
+      },
+      "checkpoint_frames": {
+        "path_pattern": "metrical-tracker/output/<id>/checkpoint/{frame5}.frame",
+        "required_in_current_stage": true,
+        "required_for_flashavatar_training": true,
+        "produced_by_current_stage": "conditional_on_identity_npy",
+        "source": "/root/AvatarStack/modules/metrical-tracker/output/<id>/checkpoint",
+        "count_rule": "equals image_count - 1 when begin_frames = 1",
+        "minimum_required_keys": {
+          "flame.exp": [
+            1,
+            100
+          ],
+          "flame.shape": [
+            1,
+            300
+          ],
+          "flame.eyes": [
+            1,
+            12
+          ],
+          "flame.eyelids": [
+            1,
+            2
+          ],
+          "flame.jaw": [
+            1,
+            6
+          ],
+          "opencv.R": [
+            1,
+            3,
+            3
+          ],
+          "opencv.t": [
+            1,
+            3
+          ],
+          "opencv.K": [
+            1,
+            3,
+            3
+          ],
+          "img_size": [
+            2
+          ]
+        },
+        "additional_known_keys": {
+          "flame.tex": [
+            1,
+            140
+          ],
+          "flame.sh": [
+            1,
+            9,
+            3
+          ],
+          "camera.R": [
+            1,
+            6
+          ],
+          "camera.t": [
+            1,
+            3
+          ],
+          "camera.fl": [
+            1,
+            1
+          ],
+          "camera.pp": [
+            1,
+            2
+          ],
+          "frame_id": "string_or_zero_padded_frame_id",
+          "global_step": "integer"
+        }
+      }
+    }
+  },
+  "alignment_rules": {
+    "frame_numbering": {
+      "dataset_images_start_at": "00000",
+      "matanyone_images_start_at": "0000",
+      "normalization_rule": "all final FlashAvatar-facing image and mask files must be renamed to 5-digit indices"
+    },
+    "cross_artifact_count_rules": [
+      "count(imgs) == count(alpha)",
+      "count(imgs) == count(parsing_neckhead)",
+      "count(imgs) == count(parsing_mouth)"
+    ],
+    "flashavatar_tracker_offset_rule": {
+      "enabled_when_checkpoint_exists": true,
+      "tracker_begin_frames": 1,
+      "mapping": "00000.frame <-> 00001.jpg",
+      "count_relation": "count(checkpoint_frames) + 1 == count(imgs)"
+    },
+    "resolution_rule": "For every frame index, imgs/alpha/parsing_neckhead/parsing_mouth must share identical width and height.",
+    "recommended_resolution": "512x512 for maximum compatibility with current FlashAvatar code paths"
+  },
+  "depth_supervision_extension": {
+    "status": "planned_not_enabled_by_default",
+    "loss_name": "scale_invariant_depth_loss",
+    "loss_form": "1 - pearson_corr(render_depth[valid], mono_depth[valid])",
+    "input_artifact": "dataset/<id>/depth/{frame5}.npy",
+    "renderer_requirement": "training path must expose per-frame rendered depth in addition to RGB",
+    "valid_region_rule": "valid_depth_mask = erode(parsing_neckhead, 2~3 px) - mouth_inner_mask",
+    "motivation": [
+      "avoid edge depth bleeding near jaw and hair boundaries",
+      "avoid unreliable monocular depth inside open-mouth regions",
+      "use relative-depth correlation instead of absolute-depth matching"
+    ]
+  },
+  "validation_rules": {
+    "hard_checks": [
+      "video frame count must be > 0",
+      "person_seed must contain non-zero pixels",
+      "mouth_seed must contain non-zero pixels",
+      "all final imgs/alpha/parsing files must exist for every frame index",
+      "all final imgs/alpha/parsing files must have identical spatial resolution",
+      "metrical-tracker input/<id>/identity.npy must exist before tracker execution",
+      "metrical-tracker config file stem must equal <id>",
+      "metrical-tracker config begin_frames must be 1 for FlashAvatar alignment",
+      "00000.frame must exist after tracker execution",
+      "all required tensor keys and shapes in .frame must match the declared contract"
+    ],
+    "soft_checks": [
+      "alpha edge should be temporally stable",
+      "mouth mask should consistently cover the lip opening region",
+      "neckhead foreground should not collapse or drift frame to frame",
+      "sampled first/middle/last frames should show correct visual alignment",
+      "if depth supervision is enabled, depth maps should align with RGB without obvious edge bleeding at jawlines or hair boundaries",
+      "if depth supervision is enabled, open-mouth interior should be excluded from depth loss"
+    ]
+  },
+  "pipeline_status_contract": {
+    "mask_ready_tracker_pending": {
+      "meaning": "imgs/alpha/parsing are complete and normalized, but identity.npy is missing or metrical-tracker has not produced checkpoint/*.frame yet."
+    },
+    "flashavatar_ready": {
+      "meaning": "imgs/alpha/parsing/checkpoint are all valid and Scene_mica can consume the sequence."
+    }
+  }
+}
